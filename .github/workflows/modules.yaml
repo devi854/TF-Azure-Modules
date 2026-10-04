@@ -1,0 +1,90 @@
+# Checks only. Modules are never planned or applied from this repository.
+# Release a version by tagging main:  git tag -a v1.0.0 -m "..." && git push origin v1.0.0
+
+name: modules-ci
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "modules/**"
+      - ".github/workflows/modules-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "modules/**"
+      - ".github/workflows/modules-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TF_VERSION: "1.16.4"
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Format check
+        run: terraform fmt -check -recursive -diff modules
+
+  validate:
+    name: Validate ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [state-storage, network, windows-vm, app-service]
+    defaults:
+      run:
+        working-directory: modules/${{ matrix.module }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: Init without backend
+        run: terraform init -backend=false
+
+      - name: Validate
+        run: terraform validate -no-color
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+
+      - name: TFLint
+        run: |
+          tflint --init
+          tflint -f compact
+
+  security:
+    name: Security scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: modules
+          framework: terraform
+          quiet: true
+          soft_fail: false
